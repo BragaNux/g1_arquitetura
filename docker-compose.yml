@@ -1,3 +1,4 @@
+version: '3.8' # Adicionado por boas práticas
 
 services:
   # ========================
@@ -149,64 +150,65 @@ services:
     command: >
       sh -c "sleep 5 && npx prisma db push && npm run start"
 
-# ========================
-  # 📈 InfluxDB para métricas/k6
-  # ========================
+  # === INFRA DE MONITORAMENTO ===
   influxdb:
-    image: influxdb:2.7
+    image: influxdb:1.8
     container_name: influxdb
     restart: always
-    networks: [ app-net ]
-    environment:
-      - INFLUXDB_DB=k6
-      - INFLUXDB_ADMIN_USER=k6admin
-      - INFLUXDB_ADMIN_PASSWORD=k6pass
-      - INFLUXDB_HTTP_AUTH_ENABLED=true
     ports:
       - "8086:8086"
+    environment:
+      - INFLUXDB_DB=k6
+      - INFLUXDB_HTTP_AUTH_ENABLED=false
     volumes:
-      - influxdb_data:/var/lib/influxdb2
+      - influxdb_data:/var/lib/influxdb
+      - ./influxdb-init/init-influxdb.sh:/docker-entrypoint-initdb.d/init-influxdb.sh
+    networks: [ app-net ] # <--- CORREÇÃO: Adicionado à rede principal
 
-  # ========================
-  # 📊 Grafana para visualização
-  # ========================
   grafana:
-    image: grafana/grafana:10.3.1
+    image: grafana/grafana:10.2.3
     container_name: grafana
     restart: always
-    networks: [ app-net ]
+    ports:
+      - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=adminpass
-    ports:
-      - "3006:3000"
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - influxdb
     volumes:
       - grafana_data:/var/lib/grafana
-    depends_on:
-      - influxdb
+    networks: [ app-net ] # <--- CORREÇÃO: Adicionado à rede principal
 
-  # ========================
-  # 🏃 K6 - Performance Testing (sidecar/manual)
-  # ========================
+  # === K6 ===
   k6:
-    image: grafana/k6:0.50.0
-    container_name: k6
-    networks: [ app-net ]
-    entrypoint: tail -f /dev/null
-    volumes:
-      - ./k6:/scripts
+    image: grafana/k6:latest
+    container_name: k6_runner
     depends_on:
+      - payments      # <--- CORREÇÃO: Nome do serviço estava errado
+      - orders        # <--- CORREÇÃO: Nome do serviço estava errado
       - influxdb
-    # You can override the entrypoint when running tests:
-    # docker compose run k6 run /scripts/your-script.js
+    volumes:
+      - ./k6-scripts:/scripts
+    entrypoint: ["k6"]
+    networks:
+      - app-net     # <--- CORREÇÃO: Deve estar na rede dos serviços que testa
 
-networks:
-  app-net:
-
+# ========================
+# 📦 Volumes
+# ========================
 volumes:
-  products_pgdata:
-  users_pgdata:
-  payments_pgdata:
-  mongo_orders_data:
-  influxdb_data:
-  grafana_data:
+  products_pgdata: {}   # <--- CORREÇÃO: Faltava definir
+  users_pgdata: {}      # <--- CORREÇÃO: Faltava definir
+  payments_pgdata: {}   # <--- CORREÇÃO: Nome estava 'payments_postgres_data'
+  mongo_orders_data: {} # <--- CORREÇÃO: Nome estava 'orders_mongo_data'
+  influxdb_data: {}
+  grafana_data: {}
+  # (O volume 'pgadmin_data' foi removido pois não era usado)
+
+# ========================
+# 🌐 Redes
+# ========================
+networks:
+  app-net:              # <--- CORREÇÃO: Definição da rede que faltava
+    driver: bridge
